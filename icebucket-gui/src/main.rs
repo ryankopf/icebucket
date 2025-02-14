@@ -3,6 +3,8 @@ use iced::{Alignment, Application, Command, Element, Length, Settings, Theme};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+mod syncfunctions;
+use syncfunctions::{save_settings, load_sync_settings, save_sync_settings};
 
 const SETTINGS_FILE: &str = "settings.json";
 
@@ -48,14 +50,21 @@ impl Default for SyncSettings {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+enum ViewState {
+    #[default]
+    DirectoryList,
+    AddDirectory,
+    EditSyncSettings,
+}
+
 #[derive(Default)]
 struct IceBucketGui {
     settings: SettingsData,
     new_directory: String,
-    adding_directory: bool,
     selected_directory: Option<String>,
     sync_settings: SyncSettings,
-    editing_sync_settings: bool,
+    view_state: ViewState,
 }
 
 #[derive(Debug, Clone)]
@@ -179,15 +188,13 @@ impl IceBucketGui {
         .into()
     }
 
-    fn view(&self) -> Element<Message> {
-        if self.adding_directory {
-            self.view_add_directory()
-        } else if self.editing_sync_settings {
-            self.view_sync_settings()
-        } else {
-            self.view_directory_list()
-        }
-    }
+    // fn view(&self) -> Element<Message> {
+    //     match self.view_state {
+    //         ViewState::AddDirectory => self.view_add_directory(),
+    //         ViewState::EditSyncSettings => self.view_sync_settings(),
+    //         ViewState::DirectoryList => self.view_directory_list(),
+    //     }
+    // }
 }
 
 impl Application for IceBucketGui {
@@ -201,17 +208,16 @@ impl Application for IceBucketGui {
             Self {
                 settings: flags,
                 new_directory: String::new(),
-                adding_directory: false,
                 selected_directory: None,
                 sync_settings: SyncSettings::default(),
-                editing_sync_settings: false,
+                view_state: ViewState::DirectoryList,
             },
             Command::none(),
         )
     }
 
     fn title(&self) -> String {
-        "IceBucket GUI".to_string()
+        "IceBucket GUI - Kopf Robotics".to_string()
     }
 
     fn update(&mut self, message: Message) -> Command<Message> {
@@ -219,16 +225,16 @@ impl Application for IceBucketGui {
             Message::DirectoryClicked(directory) => {
                 self.selected_directory = Some(directory.clone());
                 self.sync_settings = load_sync_settings(&directory);
-                self.editing_sync_settings = true;
+                self.view_state = ViewState::EditSyncSettings;
                 Command::none()
             }
             Message::RemoveDirectory(directory) => {
                 self.settings.directories_to_scan.retain(|d| d != &directory);
-                save_settings_sync(&self.settings);
+                save_settings(&self.settings);
                 Command::none()
             }
             Message::AddDirectory => {
-                self.adding_directory = true;
+                self.view_state = ViewState::AddDirectory;
                 self.new_directory.clear();
                 Command::none()
             }
@@ -239,13 +245,13 @@ impl Application for IceBucketGui {
             Message::ConfirmAddDirectory => {
                 if !self.new_directory.trim().is_empty() {
                     self.settings.directories_to_scan.push(self.new_directory.clone());
-                    save_settings_sync(&self.settings);
+                    save_settings(&self.settings);
                 }
-                self.adding_directory = false;
+                self.view_state = ViewState::DirectoryList;
                 Command::none()
             }
             Message::CancelAddDirectory => {
-                self.adding_directory = false;
+                self.view_state = ViewState::DirectoryList;
                 Command::none()
             }
             Message::UpdateSyncSettings(new_settings) => {
@@ -256,23 +262,21 @@ impl Application for IceBucketGui {
                 if let Some(ref dir) = self.selected_directory {
                     save_sync_settings(dir, &self.sync_settings);
                 }
-                self.editing_sync_settings = false;
+                self.view_state = ViewState::DirectoryList;
                 Command::none()
             }
             Message::CancelSyncSettings => {
-                self.editing_sync_settings = false;
+                self.view_state = ViewState::DirectoryList;
                 Command::none()
             }
         }
     }
 
     fn view(&self) -> Element<Message> {
-        if self.adding_directory {
-            self.view_add_directory()
-        } else if self.editing_sync_settings {
-            self.view_sync_settings()
-        } else {
-            self.view_directory_list()
+        match self.view_state {
+            ViewState::AddDirectory => self.view_add_directory(),
+            ViewState::EditSyncSettings => self.view_sync_settings(),
+            ViewState::DirectoryList => self.view_directory_list(),
         }
     }
 }
@@ -287,32 +291,6 @@ fn load_settings_sync() -> SettingsData {
         }
     }
     SettingsData::default()
-}
-
-/// Save settings immediately when a change is made
-fn save_settings_sync(settings: &SettingsData) {
-    if let Ok(data) = serde_json::to_string_pretty(settings) {
-        let _ = fs::write(SETTINGS_FILE, data);
-    }
-}
-
-fn load_sync_settings(directory: &str) -> SyncSettings {
-    let path = Path::new(directory).join("sync.json");
-    if path.exists() {
-        if let Ok(data) = fs::read_to_string(path) {
-            if let Ok(settings) = serde_json::from_str(&data) {
-                return settings;
-            }
-        }
-    }
-    SyncSettings::default()
-}
-
-fn save_sync_settings(directory: &str, settings: &SyncSettings) {
-    let path = Path::new(directory).join("sync.json");
-    if let Ok(data) = serde_json::to_string_pretty(settings) {
-        let _ = fs::write(path, data);
-    }
 }
 
 fn main() -> iced::Result {
