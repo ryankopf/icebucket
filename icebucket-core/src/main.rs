@@ -14,13 +14,16 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
 use aws_sdk_s3::{Client, config::Region};
-use aws_sdk_s3::primitives::ByteStream;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::config::Credentials;
 use aws_config::meta::region::RegionProviderChain;
 use tokio::runtime::Runtime;
 use sysinfo::System;//, SystemExt, ProcessExt};
 mod install;
+mod services;
+use services::s3::{service_s3_check, service_s3_upload, service_s3_multipart_upload};
+mod sync;
+use sync::create_default_sync_settings;
 
 // This program is a simple file sync tool that runs in the system tray.
 // It scans specified directories for files and syncs the changes to
@@ -225,7 +228,12 @@ async fn sync_directory(dir: &str, file_map: &mut HashMap<String, SystemTime>) {
                 if VERBOSE.load(Ordering::Relaxed) {
                     println!("S3 << {}", s3_path);
                 }
-                service_s3_upload(&client, &sync_settings.bucket, s3_path, file).await;
+                if fs::metadata(file).unwrap().len() > 5 * 1024 * 1024 {
+                    // Use multipart upload for files larger than 5MB
+                    service_s3_multipart_upload(&client, &sync_settings.bucket, s3_path, file).await;
+                } else {
+                    service_s3_upload(&client, &sync_settings.bucket, s3_path, file).await;
+                }
             }
         }
     }
@@ -239,52 +247,6 @@ async fn sync_directory(dir: &str, file_map: &mut HashMap<String, SystemTime>) {
     if !deletions.is_empty() {
         println!("Files to delete in {}: {:?}", dir, deletions);
     }
-}
-
-fn create_default_sync_settings(sync_settings_path: &str) -> SyncSettings {
-    let default_sync_settings = SyncSettings {
-        service: "s3".to_string(),
-        access_key: "YOUR_ACCESS_KEY".to_string(),
-        secret_key: "YOUR_SECRET_KEY".to_string(),
-        region: "us-east-1".to_string(),
-        bucket: "your-bucket-name".to_string(),
-        endpoint: "".to_string(),
-        sync_type: "upload-only".to_string(),
-        conflicts: "keep-local".to_string(),
-    };
-    let sync_settings_json = json!(default_sync_settings);
-    fs::write(sync_settings_path, sync_settings_json.to_string()).expect("Failed to write sync settings");
-    default_sync_settings
-}
-
-async fn service_s3_check(client: &Client, bucket: &str, s3_path: &str) -> bool {
-    let objects = client.list_objects_v2()
-        .bucket(bucket)
-        .prefix(s3_path)
-        .send()
-        .await
-        .expect("Failed to list objects");
-
-    if let Some(contents) = objects.contents {
-        for object in contents {
-            if object.key().unwrap() == s3_path {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
-async fn service_s3_upload(client: &Client, bucket: &str, s3_path: &str, file_path: &str) {
-    let file_content = fs::read(file_path).expect("Unable to read file content");
-    client.put_object()
-        .bucket(bucket)
-        .key(s3_path)
-        .body(ByteStream::from(file_content))
-        .send()
-        .await
-        .expect("Failed to upload file");
 }
 
 struct TrayApp {
