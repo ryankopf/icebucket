@@ -58,9 +58,9 @@ struct SyncSettings {
 static VERBOSE: AtomicBool = AtomicBool::new(false);
 
 fn main() {
-    unsafe {
-        let _ = FreeConsole(); // Hides console window
-    }
+    // unsafe {
+    //     let _ = FreeConsole(); // Hides console window
+    // }
     let args: Vec<String> = env::args().collect();
     if args.contains(&"--install".to_string()) {
         match install::add_to_startup() {
