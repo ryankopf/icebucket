@@ -2,6 +2,14 @@
 name = "icebucket-core"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/ryankopf/icebucket"
+authors = ["Ryan Kopf <icebucket@ryankopf.com>"]
+license = "MIT"
+description = "A graphical user interface for Icebucket"
+homepage = "https://github.com/ryankopf/icebucket"
+readme = "README.md"
+keywords = ["gui", "iced", "desktop"]
+categories = ["gui", "command-line-utilities"]
 
 [dependencies]
 aws-config = "1.5.16"
