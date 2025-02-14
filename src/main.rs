@@ -12,6 +12,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::time::SystemTime;
+use sha2::{Sha256, Digest};
+use aws_sdk_s3::{Client, config::Region};
+use aws_sdk_s3::primitives::ByteStream;
+use aws_config::meta::region::RegionProviderChain;
+use tokio::runtime::Runtime;
 mod install;
 
 // This program is a simple file sync tool that runs in the system tray.
@@ -96,18 +101,21 @@ fn main() {
 
     // Background sync loop
     thread::spawn(move || {
-        let mut file_maps: HashMap<String, HashMap<String, SystemTime>> = HashMap::new();
-        for dir in &settings.directories_to_scan {
-            file_maps.insert(dir.clone(), HashMap::new());
-        }
-        loop {
+        let rt = Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut file_maps: HashMap<String, HashMap<String, SystemTime>> = HashMap::new();
             for dir in &settings.directories_to_scan {
-                if let Some(file_map) = file_maps.get_mut(dir) {
-                    sync_directory(dir, file_map);
-                }
+                file_maps.insert(dir.clone(), HashMap::new());
             }
-            thread::sleep(Duration::from_secs(settings.seconds_between_scans));
-        }
+            loop {
+                for dir in &settings.directories_to_scan {
+                    if let Some(file_map) = file_maps.get_mut(dir) {
+                        sync_directory(dir, file_map).await;
+                    }
+                }
+                thread::sleep(Duration::from_secs(settings.seconds_between_scans));
+            }
+        });
     });
 
     let mut app = TrayApp { tray_icon };
@@ -133,7 +141,7 @@ fn create_default_settings(settings_path: &str) -> Settings {
     default_settings
 }
 
-fn sync_directory(dir: &str, file_map: &mut HashMap<String, SystemTime>) {
+async fn sync_directory(dir: &str, file_map: &mut HashMap<String, SystemTime>) {
     let sync_settings_path = format!("{}/sync.json", dir);
     if !fs::metadata(&sync_settings_path).is_ok() {
         let default_sync_settings = SyncSettings {
@@ -147,8 +155,10 @@ fn sync_directory(dir: &str, file_map: &mut HashMap<String, SystemTime>) {
             conflicts: "keep-local".to_string(),
         };
         let sync_settings_json = json!(default_sync_settings);
-        fs::write(sync_settings_path, sync_settings_json.to_string()).expect("Failed to write sync settings");
+        fs::write(&sync_settings_path, sync_settings_json.to_string()).expect("Failed to write sync settings");
     }
+
+    let sync_settings: SyncSettings = serde_json::from_str(&fs::read_to_string(sync_settings_path).expect("Failed to read sync settings")).expect("Failed to parse sync settings");
 
     let mut files_to_sync = Vec::new();
     let mut deletions = Vec::new();
@@ -188,6 +198,19 @@ fn sync_directory(dir: &str, file_map: &mut HashMap<String, SystemTime>) {
         }
     }
 
+    // Sync files to S3
+    if sync_settings.service == "s3" {
+        let region_provider = RegionProviderChain::default_provider().or_else(Region::new(sync_settings.region));
+        let config = aws_config::from_env().region(region_provider).load().await;
+        let client = Client::new(&config);
+
+        for file in &files_to_sync {
+            if !service_s3_check(&client, &sync_settings.bucket, &file).await {
+                service_s3_upload(&client, &sync_settings.bucket, &file).await;
+            }
+        }
+    }
+
     // Placeholder for syncing files
     if !files_to_sync.is_empty() {
         let recent_action = format!("S3 << {}", files_to_sync.last().unwrap());
@@ -197,6 +220,55 @@ fn sync_directory(dir: &str, file_map: &mut HashMap<String, SystemTime>) {
     if !deletions.is_empty() {
         println!("Files to delete in {}: {:?}", dir, deletions);
     }
+}
+
+async fn service_s3_check(client: &Client, bucket: &str, file_path: &str) -> bool {
+    let file_metadata = fs::metadata(file_path).expect("Unable to read file metadata");
+    let file_size = file_metadata.len();
+    let mut hasher = Sha256::new();
+    let file_content = fs::read(file_path).expect("Unable to read file content");
+    hasher.update(&file_content);
+    let file_hash = format!("{:x}", hasher.finalize());
+
+    let objects = client.list_objects_v2()
+        .bucket(bucket)
+        .prefix(file_path)
+        .send()
+        .await
+        .expect("Failed to list objects");
+
+    if let Some(contents) = objects.contents {
+        for object in contents {
+            if object.key().unwrap() == file_path && object.size() == Some(file_size as i64) {
+                let object_hash = client.head_object()
+                    .bucket(bucket)
+                    .key(file_path)
+                    .send()
+                    .await
+                    .expect("Failed to get object metadata")
+                    .e_tag()
+                    .unwrap()
+                    .replace("\"", "");
+
+                if object_hash == file_hash {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
+async fn service_s3_upload(client: &Client, bucket: &str, file_path: &str) {
+    let file_content = fs::read(file_path).expect("Unable to read file content");
+    client.put_object()
+        .bucket(bucket)
+        .key(file_path)
+        .body(ByteStream::from(file_content))
+        .send()
+        .await
+        .expect("Failed to upload file");
 }
 
 struct TrayApp {
