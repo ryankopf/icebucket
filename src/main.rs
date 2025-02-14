@@ -11,10 +11,14 @@ use windows::Win32::System::Console::FreeConsole;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::SystemTime;
 use sha2::{Sha256, Digest};
 use aws_sdk_s3::{Client, config::Region};
 use aws_sdk_s3::primitives::ByteStream;
+use aws_config::BehaviorVersion;
+use aws_sdk_s3::config::Credentials;
 use aws_config::meta::region::RegionProviderChain;
 use tokio::runtime::Runtime;
 mod install;
@@ -48,10 +52,12 @@ struct SyncSettings {
     conflicts: String,
 }
 
+static VERBOSE: AtomicBool = AtomicBool::new(false);
+
 fn main() {
-    unsafe {
-        let _ = FreeConsole(); // Hides console window
-    }
+    // unsafe {
+    //     let _ = FreeConsole(); // Hides console window
+    // }
     let args: Vec<String> = env::args().collect();
     if args.contains(&"--install".to_string()) {
         match install::add_to_startup() {
@@ -66,6 +72,9 @@ fn main() {
             Err(_) => eprintln!("Failed to remove from startup."),
         }
         return;
+    }
+    if args.contains(&"--verbose".to_string()) {
+        VERBOSE.store(true, Ordering::Relaxed);
     }
 
     let settings = load_or_create_settings();
@@ -110,6 +119,9 @@ fn main() {
             loop {
                 for dir in &settings.directories_to_scan {
                     if let Some(file_map) = file_maps.get_mut(dir) {
+                        if VERBOSE.load(Ordering::Relaxed) {
+                            println!("Syncing directory: {}", dir);
+                        }
                         sync_directory(dir, file_map).await;
                     }
                 }
@@ -143,22 +155,13 @@ fn create_default_settings(settings_path: &str) -> Settings {
 
 async fn sync_directory(dir: &str, file_map: &mut HashMap<String, SystemTime>) {
     let sync_settings_path = format!("{}/sync.json", dir);
-    if !fs::metadata(&sync_settings_path).is_ok() {
-        let default_sync_settings = SyncSettings {
-            service: "s3".to_string(),
-            access_key: "YOUR_ACCESS_KEY".to_string(),
-            secret_key: "YOUR_SECRET_KEY".to_string(),
-            region: "us-east-1".to_string(),
-            bucket: "your-bucket-name".to_string(),
-            endpoint: "".to_string(),
-            sync_type: "upload-only".to_string(),
-            conflicts: "keep-local".to_string(),
-        };
-        let sync_settings_json = json!(default_sync_settings);
-        fs::write(&sync_settings_path, sync_settings_json.to_string()).expect("Failed to write sync settings");
-    }
-
-    let sync_settings: SyncSettings = serde_json::from_str(&fs::read_to_string(sync_settings_path).expect("Failed to read sync settings")).expect("Failed to parse sync settings");
+    let sync_settings: SyncSettings = match fs::read_to_string(&sync_settings_path) {
+        Ok(settings_data) => match serde_json::from_str(&settings_data) {
+            Ok(settings) => settings,
+            Err(_) => create_default_sync_settings(&sync_settings_path),
+        },
+        Err(_) => create_default_sync_settings(&sync_settings_path),
+    };
 
     let mut files_to_sync = Vec::new();
     let mut deletions = Vec::new();
@@ -201,11 +204,24 @@ async fn sync_directory(dir: &str, file_map: &mut HashMap<String, SystemTime>) {
     // Sync files to S3
     if sync_settings.service == "s3" {
         let region_provider = RegionProviderChain::default_provider().or_else(Region::new(sync_settings.region));
-        let config = aws_config::from_env().region(region_provider).load().await;
+        let config = aws_config::defaults(BehaviorVersion::latest())
+            .region(region_provider)
+            .credentials_provider(Credentials::new(
+                sync_settings.access_key,
+                sync_settings.secret_key,
+                None,
+                None,
+                "default",
+            ))
+            .load()
+            .await;
         let client = Client::new(&config);
 
         for file in &files_to_sync {
             if !service_s3_check(&client, &sync_settings.bucket, &file).await {
+                if VERBOSE.load(Ordering::Relaxed) {
+                    println!("S3 << {}", file);
+                }
                 service_s3_upload(&client, &sync_settings.bucket, &file).await;
             }
         }
@@ -220,6 +236,22 @@ async fn sync_directory(dir: &str, file_map: &mut HashMap<String, SystemTime>) {
     if !deletions.is_empty() {
         println!("Files to delete in {}: {:?}", dir, deletions);
     }
+}
+
+fn create_default_sync_settings(sync_settings_path: &str) -> SyncSettings {
+    let default_sync_settings = SyncSettings {
+        service: "s3".to_string(),
+        access_key: "YOUR_ACCESS_KEY".to_string(),
+        secret_key: "YOUR_SECRET_KEY".to_string(),
+        region: "us-east-1".to_string(),
+        bucket: "your-bucket-name".to_string(),
+        endpoint: "".to_string(),
+        sync_type: "upload-only".to_string(),
+        conflicts: "keep-local".to_string(),
+    };
+    let sync_settings_json = json!(default_sync_settings);
+    fs::write(sync_settings_path, sync_settings_json.to_string()).expect("Failed to write sync settings");
+    default_sync_settings
 }
 
 async fn service_s3_check(client: &Client, bucket: &str, file_path: &str) -> bool {
