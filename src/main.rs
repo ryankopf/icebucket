@@ -12,7 +12,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::SystemTime;
 use sha2::{Sha256, Digest};
 use aws_sdk_s3::{Client, config::Region};
@@ -73,7 +72,7 @@ fn main() {
         }
         return;
     }
-    if args.contains(&"--verbose".to_string()) {
+    if args.contains(&"--verbose".to_string()) || env::var("CARGO").is_ok() {
         VERBOSE.store(true, Ordering::Relaxed);
     }
 
@@ -218,11 +217,13 @@ async fn sync_directory(dir: &str, file_map: &mut HashMap<String, SystemTime>) {
         let client = Client::new(&config);
 
         for file in &files_to_sync {
-            if !service_s3_check(&client, &sync_settings.bucket, &file).await {
+            let relative_path = file.strip_prefix(dir).unwrap().replace("\\", "/");
+            let s3_path = relative_path.trim_start_matches('/');
+            if !service_s3_check(&client, &sync_settings.bucket, s3_path).await {
                 if VERBOSE.load(Ordering::Relaxed) {
-                    println!("S3 << {}", file);
+                    println!("S3 << {}", s3_path);
                 }
-                service_s3_upload(&client, &sync_settings.bucket, &file).await;
+                service_s3_upload(&client, &sync_settings.bucket, s3_path, file).await;
             }
         }
     }
@@ -254,37 +255,18 @@ fn create_default_sync_settings(sync_settings_path: &str) -> SyncSettings {
     default_sync_settings
 }
 
-async fn service_s3_check(client: &Client, bucket: &str, file_path: &str) -> bool {
-    let file_metadata = fs::metadata(file_path).expect("Unable to read file metadata");
-    let file_size = file_metadata.len();
-    let mut hasher = Sha256::new();
-    let file_content = fs::read(file_path).expect("Unable to read file content");
-    hasher.update(&file_content);
-    let file_hash = format!("{:x}", hasher.finalize());
-
+async fn service_s3_check(client: &Client, bucket: &str, s3_path: &str) -> bool {
     let objects = client.list_objects_v2()
         .bucket(bucket)
-        .prefix(file_path)
+        .prefix(s3_path)
         .send()
         .await
         .expect("Failed to list objects");
 
     if let Some(contents) = objects.contents {
         for object in contents {
-            if object.key().unwrap() == file_path && object.size() == Some(file_size as i64) {
-                let object_hash = client.head_object()
-                    .bucket(bucket)
-                    .key(file_path)
-                    .send()
-                    .await
-                    .expect("Failed to get object metadata")
-                    .e_tag()
-                    .unwrap()
-                    .replace("\"", "");
-
-                if object_hash == file_hash {
-                    return true;
-                }
+            if object.key().unwrap() == s3_path {
+                return true;
             }
         }
     }
@@ -292,11 +274,11 @@ async fn service_s3_check(client: &Client, bucket: &str, file_path: &str) -> boo
     false
 }
 
-async fn service_s3_upload(client: &Client, bucket: &str, file_path: &str) {
+async fn service_s3_upload(client: &Client, bucket: &str, s3_path: &str, file_path: &str) {
     let file_content = fs::read(file_path).expect("Unable to read file content");
     client.put_object()
         .bucket(bucket)
-        .key(file_path)
+        .key(s3_path)
         .body(ByteStream::from(file_content))
         .send()
         .await
