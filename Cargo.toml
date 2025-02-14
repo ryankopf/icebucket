@@ -1,0 +1,18 @@
+[package]
+name = "icebucket"
+version = "0.1.0"
+edition = "2021"
+
+# [dependencies]
+# iced = { version = "0.12", features = ["tokio"] }
+# tray-icon = "0.12"
+# tokio = { version = "1", features = ["full"] }
+
+# windows = { version = "0.56.0", features = ["Win32", "Win32_System", "Win32_System_Console"] }
+[dependencies]
+trayicon = "0.2"
+winit = "0.30"
+winreg = "0.52.0"
+windows = { version = "0.52", features = ["Win32", "Win32_System", "Win32_System_Console", "Win32_System_Threading", "Win32_Foundation"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "*"
