@@ -96,6 +96,10 @@ impl IceBucketGui {
     }
 
     fn view_sync_settings(&self) -> Element<Message> {
+        let services = vec!["s3".to_string(), "other".to_string()];
+        let sync_types = vec!["upload-only".to_string(), "download-only".to_string(), "sync".to_string()];
+        let conflicts = vec!["keep-local".to_string(), "keep-remote".to_string()];
+
         container(
             column![
                 text("Sync Settings").size(30),
@@ -119,9 +123,9 @@ impl IceBucketGui {
                     .on_input(|v| Message::UpdateSyncSettings(SyncSettings { endpoint: v, ..self.sync_settings.clone() }))
                     .padding(10)
                     .width(Length::Fill),
-                // pick_list(&["s3", "other"], Some(self.sync_settings.service.clone()), |v| Message::UpdateSyncSettings(SyncSettings { service: v, ..self.sync_settings.clone() })),
-                // pick_list(&["upload-only", "download-only", "sync"], Some(self.sync_settings.sync_type.clone()), |v| Message::UpdateSyncSettings(SyncSettings { sync_type: v, ..self.sync_settings.clone() })),
-                // pick_list(&["keep-local", "keep-remote"], Some(self.sync_settings.conflicts.clone()), |v| Message::UpdateSyncSettings(SyncSettings { conflicts: v, ..self.sync_settings.clone() })),
+                pick_list(services.clone(), Some(self.sync_settings.service.clone()), |v| Message::UpdateSyncSettings(SyncSettings { service: v, ..self.sync_settings.clone() })),
+                pick_list(sync_types.clone(), Some(self.sync_settings.sync_type.clone()), |v| Message::UpdateSyncSettings(SyncSettings { sync_type: v, ..self.sync_settings.clone() })),
+                pick_list(conflicts.clone(), Some(self.sync_settings.conflicts.clone()), |v| Message::UpdateSyncSettings(SyncSettings { conflicts: v, ..self.sync_settings.clone() })),
                 row![
                     button("Save").on_press(Message::SaveSyncSettings),
                     button("Cancel").on_press(Message::CancelSyncSettings),
