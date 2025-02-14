@@ -318,8 +318,8 @@ impl ApplicationHandler<UserEvents> for TrayApp {
                     .spawn();
             }
             UserEvents::LeftClick => {
-                if !is_process_running("icebucketgui.exe") {
-                    let _ = Command::new("icebucketgui.exe").spawn();
+                if !is_process_running("icebucket-gui.exe") {
+                    let _ = Command::new("icebucket-gui.exe").spawn();
                 }
             }
         }
