@@ -35,10 +35,6 @@ pub async fn service_s3_upload(client: &Client, bucket: &str, s3_path: &str, fil
 pub async fn service_s3_multipart_upload(client: &Client, bucket: &str, key: &str, file_path: &str) {
   use aws_sdk_s3::types::CompletedMultipartUpload;
   use aws_sdk_s3::types::CompletedPart;
-  // use aws_sdk_s3::operation::create_multipart_upload::CreateMultipartUploadOutput;
-  // use aws_sdk_s3::operation::upload_part::UploadPartOutput;
-  // use aws_sdk_s3::operation::complete_multipart_upload::CompleteMultipartUploadOutput;
-  // use aws_sdk_s3::operation::abort_multipart_upload::AbortMultipartUploadOutput;
   use tokio::fs::File;
   use tokio::io::AsyncReadExt;
 
@@ -46,6 +42,8 @@ pub async fn service_s3_multipart_upload(client: &Client, bucket: &str, key: &st
   let file_size = file.metadata().await.unwrap().len();
   let part_size = 5 * 1024 * 1024; // 5MB
   let num_parts = (file_size + part_size - 1) / part_size;
+
+  println!("File size: {}, Part size: {}, Number of parts: {}", file_size, part_size, num_parts);
 
   let create_multipart_upload = client
       .create_multipart_upload()
@@ -60,8 +58,24 @@ pub async fn service_s3_multipart_upload(client: &Client, bucket: &str, key: &st
 
   for part_number in 1..=num_parts {
       let mut buffer = vec![0; part_size as usize];
-      let bytes_read = file.read(&mut buffer).await.unwrap();
-      buffer.truncate(bytes_read);
+      let mut total_bytes_read = 0;
+
+      while total_bytes_read < part_size as usize {
+          let bytes_read = file.read(&mut buffer[total_bytes_read..]).await.unwrap();
+          if bytes_read == 0 {
+              break;
+          }
+          total_bytes_read += bytes_read;
+      }
+
+      buffer.truncate(total_bytes_read);
+
+      println!("Part number: {}, Bytes read: {}", part_number, total_bytes_read);
+
+      // Ensure that all parts except the last one are at least 5MB
+      if part_number < num_parts && total_bytes_read < part_size as usize {
+          panic!("Part size is smaller than the minimum allowed size");
+      }
 
       let upload_part = client
           .upload_part()
