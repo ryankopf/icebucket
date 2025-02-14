@@ -38,6 +38,67 @@ enum Message {
     CancelAddDirectory,
 }
 
+impl IceBucketGui {
+    fn view_add_directory(&self) -> Element<Message> {
+        container(
+            column![
+                text("Enter Directory:"),
+                text_input("Path", &self.new_directory)
+                    .on_input(Message::UpdateNewDirectory)
+                    .padding(10)
+                    .width(Length::Fill),
+                row![
+                    button("Add").on_press(Message::ConfirmAddDirectory),
+                    button("Cancel").on_press(Message::CancelAddDirectory),
+                ]
+                .spacing(10)
+            ]
+            .spacing(20)
+            .align_items(Alignment::Center),
+        )
+        .padding(25)
+        .center_x()
+        .center_y()
+        .into()
+    }
+
+    fn view_directory_list(&self) -> Element<Message> {
+        let directory_list: Vec<Element<Message>> = self
+            .settings
+            .directories_to_scan
+            .iter()
+            .map(|dir| {
+                container(
+                    row![
+                        text(dir.clone()).width(Length::Fill),
+                        button("-")
+                        .on_press(Message::RemoveDirectory(dir.clone()))
+                        .style(iced::theme::Button::Destructive),
+                    ]
+                    .spacing(10)
+                )
+                .width(Length::Fill)
+                .padding(10)
+                .style(iced::theme::Container::default())
+                .into()
+            })
+            .collect();
+
+        container(
+            column![
+                column(directory_list).spacing(10),
+                button("Add Directory").on_press(Message::AddDirectory),
+            ]
+            .spacing(20)
+            .align_items(Alignment::Center),
+        )
+        .padding(25)
+        .center_x()
+        .center_y()
+        .into()
+    }
+}
+
 impl Application for IceBucketGui {
     type Executor = iced::executor::Default;
     type Message = Message;
@@ -96,54 +157,10 @@ impl Application for IceBucketGui {
 
     fn view(&self) -> Element<Message> {
         if self.adding_directory {
-            return container(
-                column![
-                    text("Enter Directory:"),
-                    text_input("Path", &self.new_directory)
-                        .on_input(Message::UpdateNewDirectory)
-                        .padding(10)
-                        .width(Length::Fill),
-                    row![
-                        button("Add").on_press(Message::ConfirmAddDirectory),
-                        button("Cancel").on_press(Message::CancelAddDirectory),
-                    ]
-                    .spacing(10)
-                ]
-                .spacing(20)
-                .align_items(Alignment::Center),
-            )
-            .center_x()
-            .center_y()
-            .into();
+            self.view_add_directory()
+        } else {
+            self.view_directory_list()
         }
-
-        let directory_list: Vec<Element<Message>> = self
-            .settings
-            .directories_to_scan
-            .iter()
-            .map(|dir| {
-                row![
-                    button(
-                        text(dir.clone())
-                    ).on_press(Message::DirectoryClicked(dir.clone())),
-                    button("[-]").on_press(Message::RemoveDirectory(dir.clone()))
-                ]
-                .spacing(10)
-                .into()
-            })
-            .collect();
-
-        container(
-            column![
-                column(directory_list).spacing(10),
-                button("[Add Directory]").on_press(Message::AddDirectory),
-            ]
-            .spacing(20)
-            .align_items(Alignment::Center),
-        )
-        .center_x()
-        .center_y()
-        .into()
     }
 }
 
