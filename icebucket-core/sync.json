@@ -1,0 +1,1 @@
+{"access_key":"YOUR_ACCESS_KEY","bucket":"your-bucket-name","conflicts":"keep-local","endpoint":"","region":"us-east-1","secret_key":"YOUR_SECRET_KEY","service":"s3","sync_type":"upload-only"}

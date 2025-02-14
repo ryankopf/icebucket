@@ -20,6 +20,7 @@ use aws_config::BehaviorVersion;
 use aws_sdk_s3::config::Credentials;
 use aws_config::meta::region::RegionProviderChain;
 use tokio::runtime::Runtime;
+use sysinfo::System;//, SystemExt, ProcessExt};
 mod install;
 
 // This program is a simple file sync tool that runs in the system tray.
@@ -31,6 +32,7 @@ enum UserEvents {
     Exit,
     RightClick,
     Help,
+    LeftClick,  // Add new event for left click
 }
 
 #[derive(Serialize, Deserialize)]
@@ -91,6 +93,7 @@ fn main() {
         .icon(icon)
         .tooltip("Folder Sync")
         .on_right_click(UserEvents::RightClick)
+        .on_click(UserEvents::LeftClick)  // Handle left click
         .menu(
             MenuBuilder::new()
                 .with(MenuItem::Item { 
@@ -314,6 +317,21 @@ impl ApplicationHandler<UserEvents> for TrayApp {
                     .args(["/C", "start https://kopfrobotics.com/icebucket"])
                     .spawn();
             }
+            UserEvents::LeftClick => {
+                if !is_process_running("icebucketgui.exe") {
+                    let _ = Command::new("icebucketgui.exe").spawn();
+                }
+            }
         }
     }
+}
+
+fn is_process_running(process_name: &str) -> bool {
+    let system = System::new_all();
+    for process in system.processes().values() {
+        if process.name().eq_ignore_ascii_case(process_name) {
+            return true;
+        }
+    }
+    false
 }
