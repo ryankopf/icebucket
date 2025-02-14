@@ -10,7 +10,13 @@ use winit::{
 use windows::Win32::System::Console::FreeConsole;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashMap;
+use std::time::SystemTime;
 mod install;
+
+// This program is a simple file sync tool that runs in the system tray.
+// It scans specified directories for files and syncs the changes to
+// a service like AWS S3, using a sync.json file for configuration in the folder.
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 enum UserEvents {
@@ -23,6 +29,18 @@ enum UserEvents {
 struct Settings {
     directories_to_scan: Vec<String>,
     seconds_between_scans: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SyncSettings {
+    service: String,
+    access_key: String,
+    secret_key: String,
+    region: String,
+    bucket: String,
+    endpoint: String,
+    sync_type: String,
+    conflicts: String,
 }
 
 fn main() {
@@ -77,20 +95,19 @@ fn main() {
         .unwrap();
 
     // Background sync loop
-    thread::spawn(move || loop {
+    thread::spawn(move || {
+        let mut file_maps: HashMap<String, HashMap<String, SystemTime>> = HashMap::new();
         for dir in &settings.directories_to_scan {
-            match fs::read_dir(dir) {
-                Ok(entries) => {
-                    for entry in entries {
-                        if let Ok(entry) = entry {
-                            println!("Found file: {:?}", entry.path());
-                        }
-                    }
-                }
-                Err(e) => eprintln!("Failed to read directory {}: {}", dir, e),
-            }
+            file_maps.insert(dir.clone(), HashMap::new());
         }
-        thread::sleep(Duration::from_secs(settings.seconds_between_scans));
+        loop {
+            for dir in &settings.directories_to_scan {
+                if let Some(file_map) = file_maps.get_mut(dir) {
+                    sync_directory(dir, file_map);
+                }
+            }
+            thread::sleep(Duration::from_secs(settings.seconds_between_scans));
+        }
     });
 
     let mut app = TrayApp { tray_icon };
@@ -114,6 +131,72 @@ fn create_default_settings(settings_path: &str) -> Settings {
     let settings_json = json!(default_settings);
     fs::write(settings_path, settings_json.to_string()).expect("Failed to write default settings");
     default_settings
+}
+
+fn sync_directory(dir: &str, file_map: &mut HashMap<String, SystemTime>) {
+    let sync_settings_path = format!("{}/sync.json", dir);
+    if !fs::metadata(&sync_settings_path).is_ok() {
+        let default_sync_settings = SyncSettings {
+            service: "s3".to_string(),
+            access_key: "YOUR_ACCESS_KEY".to_string(),
+            secret_key: "YOUR_SECRET_KEY".to_string(),
+            region: "us-east-1".to_string(),
+            bucket: "your-bucket-name".to_string(),
+            endpoint: "".to_string(),
+            sync_type: "upload-only".to_string(),
+            conflicts: "keep-local".to_string(),
+        };
+        let sync_settings_json = json!(default_sync_settings);
+        fs::write(sync_settings_path, sync_settings_json.to_string()).expect("Failed to write sync settings");
+    }
+
+    let mut files_to_sync = Vec::new();
+    let mut deletions = Vec::new();
+
+    match fs::read_dir(dir) {
+        Ok(entries) => {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    if path.is_file() {
+                        let metadata = fs::metadata(&path).unwrap();
+                        let modified = metadata.modified().unwrap();
+                        let path_str = path.to_str().unwrap().to_string();
+
+                        if let Some(last_modified) = file_map.get(&path_str) {
+                            if &modified > last_modified {
+                                files_to_sync.push(path_str.clone());
+                            }
+                        } else {
+                            files_to_sync.push(path_str.clone());
+                        }
+
+                        file_map.insert(path_str, modified);
+                    }
+                }
+            }
+        }
+        Err(e) => eprintln!("Failed to read directory {}: {}", dir, e),
+    }
+
+    // Check for deletions
+    let current_files: Vec<String> = file_map.keys().cloned().collect();
+    for file in current_files {
+        if !fs::metadata(&file).is_ok() {
+            deletions.push(file.clone());
+            file_map.remove(&file);
+        }
+    }
+
+    // Placeholder for syncing files
+    if !files_to_sync.is_empty() {
+        let recent_action = format!("S3 << {}", files_to_sync.last().unwrap());
+        println!("Files to sync in {}: {:?}", dir, files_to_sync);
+        fs::write("sync.log", recent_action).expect("Unable to write to sync.log");
+    }
+    if !deletions.is_empty() {
+        println!("Files to delete in {}: {:?}", dir, deletions);
+    }
 }
 
 struct TrayApp {
