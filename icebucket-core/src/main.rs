@@ -13,7 +13,6 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
-use sha2::{Sha256, Digest};
 use aws_sdk_s3::{Client, config::Region};
 use aws_sdk_s3::primitives::ByteStream;
 use aws_config::BehaviorVersion;
@@ -56,9 +55,9 @@ struct SyncSettings {
 static VERBOSE: AtomicBool = AtomicBool::new(false);
 
 fn main() {
-    // unsafe {
-    //     let _ = FreeConsole(); // Hides console window
-    // }
+    unsafe {
+        let _ = FreeConsole(); // Hides console window
+    }
     let args: Vec<String> = env::args().collect();
     if args.contains(&"--install".to_string()) {
         match install::add_to_startup() {

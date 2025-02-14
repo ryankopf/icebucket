@@ -1,0 +1,121 @@
+<?xml version='1.0' encoding='windows-1252'?>
+
+<?if $(sys.BUILDARCH) = x64 or $(sys.BUILDARCH) = arm64 ?>
+    <?define PlatformProgramFilesFolder = "ProgramFiles64Folder" ?>
+<?else ?>
+    <?define PlatformProgramFilesFolder = "ProgramFilesFolder" ?>
+<?endif ?>
+
+<Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'>
+
+    <Product
+        Id='*'
+        Name='Icebucket'
+        UpgradeCode='1BE1FEAB-8C4F-458B-86A4-D7DCE8363C29'
+        Manufacturer='Kopf Robotics'
+        Language='1033'
+        Codepage='1252'
+        Version='$(var.Version)'>
+
+        <Package Id='*'
+            Keywords='Installer'
+            Description='Installs Icebucket Core and GUI'
+            Manufacturer='Kopf Robotics'
+            InstallerVersion='450'
+            Languages='1033'
+            Compressed='yes'
+            InstallScope='perMachine'
+            SummaryCodepage='1252'/>
+
+        <MajorUpgrade
+            Schedule='afterInstallInitialize'
+            DowngradeErrorMessage='A newer version of [ProductName] is already installed. Setup will now exit.'/>
+
+        <Media Id='1' Cabinet='media1.cab' EmbedCab='yes' DiskPrompt='CD-ROM #1'/>
+        <Property Id='DiskPrompt' Value='Icebucket Installation'/>
+
+        <Directory Id='TARGETDIR' Name='SourceDir'>
+            <Directory Id='$(var.PlatformProgramFilesFolder)' Name='PFiles'>
+                <Directory Id='APPLICATIONFOLDER' Name='Icebucket'>
+                    
+                    <!-- Installation of Icebucket binaries -->
+                    <Directory Id='Bin' Name='bin'>
+                        
+                        <!-- Install icebucket-core -->
+                        <Component Id='binary0' Guid='*'>
+                            <File
+                                Id='exe0'
+                                Name='icebucket-core.exe'
+                                DiskId='1'
+                                Source='$(var.CargoTargetBinDir)\icebucket-core.exe'
+                                KeyPath='yes'/>
+                        </Component>
+
+                        <!-- Install icebucket-gui -->
+                        <Component Id='binary1' Guid='*'>
+                            <File
+                                Id='exe1'
+                                Name='icebucket-gui.exe'
+                                DiskId='1'
+                                Source='$(var.CargoTargetBinDir)\icebucket-gui.exe'
+                                KeyPath='yes'/>
+                        </Component>
+
+                    </Directory>
+
+                    <!-- Start Menu Shortcuts -->
+                    <Directory Id="ProgramMenuFolder">
+                        <Directory Id="ApplicationProgramsFolder" Name="Icebucket">
+                            <Component Id="ApplicationShortcuts" Guid="*">
+                                <Shortcut Id="CoreShortcut"
+                                    Name="Icebucket Core"
+                                    Target="[APPLICATIONFOLDER]\bin\icebucket-core.exe"
+                                    WorkingDirectory="APPLICATIONFOLDER"/>
+                                <Shortcut Id="GuiShortcut"
+                                    Name="Icebucket GUI"
+                                    Target="[APPLICATIONFOLDER]\bin\icebucket-gui.exe"
+                                    WorkingDirectory="APPLICATIONFOLDER"/>
+                                <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall"/>
+                                <RegistryValue Root="HKCU" Key="Software\Icebucket" Name="installed" Type="integer" Value="1" KeyPath="yes"/>
+                            </Component>
+                        </Directory>
+                    </Directory>
+
+                </Directory>
+            </Directory>
+        </Directory>
+
+        <Feature
+            Id='Binaries'
+            Title='Icebucket Application'
+            Description='Installs Icebucket Core and GUI'
+            Level='1'
+            ConfigurableDirectory='APPLICATIONFOLDER'
+            AllowAdvertise='no'
+            Display='expand'
+            Absent='disallow'>
+            <ComponentRef Id='binary0'/>
+            <ComponentRef Id='binary1'/>
+            <ComponentRef Id="ApplicationShortcuts"/>
+
+            <Feature
+                Id='Environment'
+                Title='PATH Environment Variable'
+                Description='Adds Icebucket executables to the PATH'
+                Level='1'
+                Absent='allow'>
+                <ComponentRef Id='Path'/>
+            </Feature>
+        </Feature>
+
+        <SetProperty Id='ARPINSTALLLOCATION' Value='[APPLICATIONFOLDER]' After='CostFinalize'/>
+
+        <Property Id='ARPHELPLINK' Value='https://github.com/ryankopf/icebucket'/>
+
+        <UI>
+            <UIRef Id='WixUI_FeatureTree'/>
+        </UI>
+
+    </Product>
+
+</Wix>

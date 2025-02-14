@@ -109,6 +109,17 @@ Right-click the **IceBucket** tray icon to:
 
 Contributions are welcome via pull requests. You're welcome to submit any changes you would like to make! However, think very carefully before introducing additional dependencies. A top priority of this project is that it runs simply from "cargo run" with as little additional configuration as possible. Many packages require native compiling of C and other packages, adding serious complexity to the end user.
 
+### Todo: Wix
+
+https://wixtoolset.org/releases/
+
+cargo build --release --workspace
+
+cargo wix -p icebucket-core
+
+cargo wix -b "C:\Program Files (x86)\WiX Toolset v3.11\bin"
+
+
 ---
 
 ## 📜 License
