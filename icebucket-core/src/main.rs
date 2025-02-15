@@ -21,9 +21,11 @@ use tokio::runtime::Runtime;
 use sysinfo::System;//, SystemExt, ProcessExt};
 mod install;
 mod services;
-use services::s3::{service_s3_check, service_s3_upload, service_s3_multipart_upload};
 mod sync;
+mod logger;
+use services::s3::{service_s3_check, service_s3_upload, service_s3_multipart_upload};
 use sync::create_default_sync_settings;
+use logger::Log;
 
 // This program is a simple file sync tool that runs in the system tray.
 // It scans specified directories for files and syncs the changes to
@@ -117,6 +119,7 @@ fn main() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let mut file_maps: HashMap<String, HashMap<String, SystemTime>> = HashMap::new();
+            let mut log = Log::new(); // Initialize the log
             for dir in &settings.directories_to_scan {
                 file_maps.insert(dir.clone(), HashMap::new());
             }
@@ -126,7 +129,7 @@ fn main() {
                         if VERBOSE.load(Ordering::Relaxed) {
                             println!("Syncing directory: {}", dir);
                         }
-                        sync_directory(dir, file_map).await;
+                        sync_directory(dir, file_map, &mut log).await; // Pass log to sync_directory
                     }
                 }
                 thread::sleep(Duration::from_secs(settings.seconds_between_scans));
@@ -157,7 +160,7 @@ fn create_default_settings(settings_path: &str) -> Settings {
     default_settings
 }
 
-async fn sync_directory(dir: &str, file_map: &mut HashMap<String, SystemTime>) {
+async fn sync_directory(dir: &str, file_map: &mut HashMap<String, SystemTime>, log: &mut Log) {
     let sync_settings_path = format!("{}/sync.json", dir);
     let sync_settings: SyncSettings = match fs::read_to_string(&sync_settings_path) {
         Ok(settings_data) => match serde_json::from_str(&settings_data) {
@@ -230,9 +233,9 @@ async fn sync_directory(dir: &str, file_map: &mut HashMap<String, SystemTime>) {
                 }
                 if fs::metadata(file).unwrap().len() > 5 * 1024 * 1024 {
                     // Use multipart upload for files larger than 5MB
-                    service_s3_multipart_upload(&client, &sync_settings.bucket, s3_path, file).await;
+                    service_s3_multipart_upload(&client, &sync_settings.bucket, s3_path, file, log).await;
                 } else {
-                    service_s3_upload(&client, &sync_settings.bucket, s3_path, file).await;
+                    service_s3_upload(&client, &sync_settings.bucket, s3_path, file, log).await;
                 }
             }
         }

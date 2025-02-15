@@ -1,6 +1,7 @@
 use aws_sdk_s3::Client;
 use std::fs;
 use aws_sdk_s3::primitives::ByteStream;
+use crate::logger::{LogEntry, Log};
 
 pub async fn service_s3_check(client: &Client, bucket: &str, s3_path: &str) -> bool {
   let objects = client.list_objects_v2()
@@ -21,8 +22,11 @@ pub async fn service_s3_check(client: &Client, bucket: &str, s3_path: &str) -> b
   false
 }
 
-pub async fn service_s3_upload(client: &Client, bucket: &str, s3_path: &str, file_path: &str) {
+pub async fn service_s3_upload(client: &Client, bucket: &str, s3_path: &str, file_path: &str, log: &mut Log) {
   let file_content = fs::read(file_path).expect("Unable to read file content");
+  let total_bytes = file_content.len() as u64;
+  log.add_entry(LogEntry::new(file_path.to_string(), bucket.to_string(), s3_path.to_string(), total_bytes));
+
   client.put_object()
       .bucket(bucket)
       .key(s3_path)
@@ -30,9 +34,11 @@ pub async fn service_s3_upload(client: &Client, bucket: &str, s3_path: &str, fil
       .send()
       .await
       .expect("Failed to upload file");
+
+  log.update_entry(file_path, total_bytes);
 }
 
-pub async fn service_s3_multipart_upload(client: &Client, bucket: &str, key: &str, file_path: &str) {
+pub async fn service_s3_multipart_upload(client: &Client, bucket: &str, key: &str, file_path: &str, log: &mut Log) {
   use aws_sdk_s3::types::CompletedMultipartUpload;
   use aws_sdk_s3::types::CompletedPart;
   use tokio::fs::File;
@@ -44,6 +50,8 @@ pub async fn service_s3_multipart_upload(client: &Client, bucket: &str, key: &st
   let num_parts = (file_size + part_size - 1) / part_size;
 
   println!("File size: {}, Part size: {}, Number of parts: {}", file_size, part_size, num_parts);
+
+  log.add_entry(LogEntry::new(file_path.to_string(), bucket.to_string(), key.to_string(), file_size));
 
   let create_multipart_upload = client
       .create_multipart_upload()
@@ -94,6 +102,10 @@ pub async fn service_s3_multipart_upload(client: &Client, bucket: &str, key: &st
               .e_tag(upload_part.e_tag().unwrap().to_string())
               .build(),
       );
+
+      if let Some(entry) = log.entries.iter_mut().find(|e| e.file_path == file_path) {
+          entry.completed_bytes += total_bytes_read as u64;
+      }
   }
 
   let completed_multipart_upload = CompletedMultipartUpload::builder()
@@ -109,4 +121,6 @@ pub async fn service_s3_multipart_upload(client: &Client, bucket: &str, key: &st
       .send()
       .await
       .unwrap();
+
+  log.update_entry(file_path, file_size);
 }
