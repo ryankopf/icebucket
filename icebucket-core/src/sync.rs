@@ -9,6 +9,7 @@ use aws_sdk_s3::{Client, config::Region};
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::config::Credentials;
 use aws_config::meta::region::RegionProviderChain;
+use aws_sdk_s3::types::ObjectCannedAcl;
 
 pub async fn sync_directory(dir: &str, file_map: &mut HashMap<String, SystemTime>, log: &mut Log) {
   let sync_settings_path = format!("{}/sync.json", dir);
@@ -86,6 +87,16 @@ pub async fn sync_directory(dir: &str, file_map: &mut HashMap<String, SystemTime
                   service_s3_multipart_upload(&client, &sync_settings.bucket, s3_path, file, log).await;
               } else {
                   service_s3_upload(&client, &sync_settings.bucket, s3_path, file, log).await;
+              }
+              if sync_settings.public {
+                  // Set ACL to public-read
+                  client.put_object_acl()
+                      .bucket(&sync_settings.bucket)
+                      .key(s3_path)
+                      .acl(ObjectCannedAcl::PublicRead)
+                      .send()
+                      .await
+                      .expect("Failed to set ACL");
               }
           }
       }

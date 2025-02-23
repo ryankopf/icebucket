@@ -32,6 +32,7 @@ pub fn create_default_sync_settings(sync_settings_path: &str) -> SyncSettings {
       endpoint: "".to_string(),
       sync_type: "upload-only".to_string(),
       conflicts: "keep-local".to_string(),
+      public: false,
   };
   let sync_settings_json = json!(default_sync_settings);
   fs::write(sync_settings_path, sync_settings_json.to_string()).expect("Failed to write sync settings");

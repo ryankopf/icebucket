@@ -51,6 +51,7 @@ struct SyncSettings {
     endpoint: String,
     sync_type: String,
     conflicts: String,
+    public: bool,
 }
 
 static VERBOSE: AtomicBool = AtomicBool::new(false);
